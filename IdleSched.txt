@@ -1,0 +1,96 @@
+#NoEnv
+;#Warn
+;#NoTrayIcon
+#KeyHistory 0
+#SingleInstance force
+ListLines Off
+CoordMode, Tooltip, Screen
+#Persistent
+
+$IdleTimer = 0
+$IdleWait := 600
+
+settimer, scheduler, 1000
+
+FetchTasks()
+{
+  $Tasks := {}
+
+  (service := ComObjCreate("Schedule.Service")).Connect()
+
+  for task in service.GetFolder("\").GetTasks(1)
+  {
+    if !task.Definition.Settings.RunOnlyIfIdle || !task.Definition.Settings.Enabled || !task.Definition.Settings.AllowDemandStart
+      continue
+
+    $Time := 0
+    Loop, Parse, % RegExReplace(task.Definition.Settings.IdleSettings.IdleDuration,"(\d+\D)","$0 "),%A_Space%, PT
+      $Time += Ceil($LF := A_LoopField) * (InStr($LF,"M")?60:InStr($LF,"H")?3600:InStr($LF,"D")?86400:1)
+
+    $Tasks.push({Task: Task, Name: Task.Name, IdleDuration: $Time, StopOnIdleEnd: task.Definition.Settings.IdleSettings.StopOnIdleEnd})
+  }
+  return $Tasks
+}
+return
+
+IniParse(Path,Section="") ;Parse Sections into Key/Value pairs
+{
+  if !Section
+    Section :=
+  $out:={}
+
+  IniRead, In, %Path%, %Section%
+  Loop, parse, In, `n, `r
+    if !Section
+      $out[A_LoopField] := IniParse(Path,A_LoopField)
+    else
+      $Temp:=StrSplit(A_LoopField,"="), $out[$Temp[1]]:=$Temp[2]
+  return $out
+}
+
+scheduler:
+  ;Idle state always resets 1 cycle before the timer to detect current Idle transition
+  $IdleTimer := $IsIdle?$IdleTimer+1:0
+  $isIdle := (Floor(A_TimeIdle/1000) > $IdleWait || !DllCall("User32\OpenInputDesktop","int",0*0,"int",0*0,"int",0x0001L*1))
+
+
+  if $isIdle ;Entering IDLE: Poll timed idle tasks
+  {
+    if !$TaskList
+      $TaskList := FetchTasks()
+
+   for k, v in $TaskList
+     if ($IdleTimer ~= v.IdleDuration) && (v.Task.State < 4)
+     {
+       v.Task.RunEx("",0x2,DllCall("ProcessIdToSessionId", "UInt", DllCall("GetCurrentProcessId"), "UInt*", SessionId),"")
+       ;msgbox % "Attempting to start " . v.Name
+     }
+
+    if $IdleTimer = 0
+      Run, TaskStart.bat,, hide
+    
+  }
+  else if $IdleTimer ;pulling out of idle
+  {
+   for k, v in $TaskList
+     if V.StopOnIdleEnd && v.Task.State ~= 4
+       v.Task.Stop(0)
+
+    $TaskList :=
+
+    Run, TaskEnd.bat,, hide
+   ; SoundBeep, 500, 100
+
+  }
+;tooltip, % "$IsIdle: " . $IsIdle . " @ " . $IdleTimer
+return
+
+  if !$Idle && $isIdle
+    Run, Taskend.bat,, hide
+  if !$isIdle
+  {
+    if $Idle = 1
+      Run, Taskstart.bat,, hide
+  }
+
+return
