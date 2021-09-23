@@ -7,10 +7,23 @@ ListLines Off
 CoordMode, Tooltip, Screen
 #Persistent
 
-$IdleTimer = 0
-$IdleWait := 600
+
+;-----------
+;Monitor Power state @ https://www.autohotkey.com/boards/viewtopic.php?t=70645
+;Nvidia NVAPI @ https://github.com/jNizM/AHK_NVIDIA_NvAPI
+;-----------
+
+$MonActive = 0
+$IdleTimer := 0
+$IdleWait  := 600
+GUID_CONSOLE_DISPLAY_STATE := "6FE69556-704A-47A0-8F24-C28D936FDA47"
 
 settimer, scheduler, 1000
+OnExit(Func("UnRegisterNotification").Bind(RegisterPowerSettingNotification(GUID_CONSOLE_DISPLAY_STATE)))
+OnMessage(0x218, "WM_POWERBROADCAST")
+
+#Include NVApi.txt
+
 
 FetchTasks()
 {
@@ -30,6 +43,30 @@ FetchTasks()
     $Tasks.push({Task: Task, Name: Task.Name, IdleDuration: $Time, StopOnIdleEnd: task.Definition.Settings.IdleSettings.StopOnIdleEnd})
   }
   return $Tasks
+}
+
+RegisterPowerSettingNotification(GUID)
+{
+  static DEVICE_NOTIFY_WINDOW_HANDLE := 0
+
+  VarSetCapacity(UUID, 16, 0)
+  DllCall("Rpcrt4\UuidFromString", Str, GUID, Ptr, &UUID)
+  Return DllCall("RegisterPowerSettingNotification", Ptr, A_ScriptHwnd, Ptr, &UUID, UInt, DEVICE_NOTIFY_WINDOW_HANDLE, Ptr)
+}
+
+UnRegisterNotification(handle)
+{
+  DllCall("UnregisterPowerSettingNotification", Ptr, handle)
+}
+
+WM_POWERBROADCAST(wp, lp)
+{
+  global $MonActive  ;0=OFF/1=ON/2=EarlyOFFNoticeBy5Sec
+
+  if ($MonActive := NumGet(lp+20,0,"UChar")) > 1
+    return
+  ;loop, % ($MonActive + 1)
+  ;  SoundBeep, 225, 100
 }
 return
 
@@ -51,7 +88,8 @@ IniParse(Path,Section="") ;Parse Sections into Key/Value pairs
 scheduler:
   ;Idle state always resets 1 cycle before the timer to detect current Idle transition
   $IdleTimer := $IsIdle?$IdleTimer+1:0
-  $isIdle := (Floor(A_TimeIdle/1000) > $IdleWait || !DllCall("User32\OpenInputDesktop","int",0*0,"int",0*0,"int",0x0001L*1))
+  $isIdle := ((Floor(A_TimeIdle/1000) > $IdleWait) && NvAPI.GPU_GetDynamicPstatesInfoEx().GPU.percentage <= 5)
+             || !DllCall("User32\OpenInputDesktop","int",0*0,"int",0*0,"int",0x0001L*1) || !$MonActive 
 
 
   if $isIdle ;Entering IDLE: Poll timed idle tasks
@@ -83,6 +121,7 @@ scheduler:
 
   }
 ;tooltip, % "$IsIdle: " . $IsIdle . " @ " . $IdleTimer
+;tooltip, % "GPUUse: " . NvAPI.GPU_GetDynamicPstatesInfoEx().GPU.percentage
 return
 
   if !$Idle && $isIdle
