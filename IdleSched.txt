@@ -22,7 +22,7 @@ settimer, scheduler, 1000
 OnExit(Func("UnRegisterNotification").Bind(RegisterPowerSettingNotification(GUID_CONSOLE_DISPLAY_STATE)))
 OnMessage(0x218, "WM_POWERBROADCAST")
 
-#Include NVApi.txt
+#Include NVApi.ahk
 
 
 FetchTasks()
