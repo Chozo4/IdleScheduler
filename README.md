@@ -5,6 +5,7 @@ Windows task scheduler will not consider a system idle if there is any resource 
 
 Idle states are detected as follows:
 - User session is currently locked
+- Monitor has been powered off as per power saving policy
 - User has provided no physical input for up to 600 seconds
 
 It will run and handle any Windows Scheduler tasks in the main branch that have idle condition configurations.
